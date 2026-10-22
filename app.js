@@ -39,6 +39,13 @@ async function gallery(){
   if(!active())return;
   files.push(...page.filter(f=>f.id));if(page.length<100)break;
  }
+ const published=new Set();
+ for(let offset=0;;offset+=100){
+  const page=check(await db.storage.from('public-photos').list(owner,{limit:100,offset,sortBy:{column:'name',order:'asc'}}));
+  if(!active())return;
+  for(const file of page)if(file.id)published.add(file.name);
+  if(page.length<100)break;
+ }
  files.sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))||a.name.localeCompare(b.name));
  const fragment=document.createDocumentFragment();
  for(let start=0;start<files.length;start+=100){
@@ -48,7 +55,13 @@ async function gallery(){
  for(let i=0;i<batch.length;i++){
  const f=batch[i],path=`${owner}/${f.name}`,signed=urls[i];
  if(signed.error)throw Error('Не удалось открыть фотографию: '+f.name);
- const card=document.createElement('article'),img=document.createElement('img'),pub=document.createElement('button'),del=document.createElement('button'),note=document.createElement('small');img.src=signed.signedUrl;img.alt='Загруженная фотография';img.loading='lazy';img.onclick=()=>window.open(signed.signedUrl,'_blank','noopener,noreferrer');pub.textContent='Опубликовать и получить ссылку';del.textContent='Удалить';note.textContent='Публикация открывает фото всем по ссылке.';pub.onclick=async()=>{pub.disabled=true;try{if(!confirm('Фото станет общедоступным. Продолжить?'))return;const blob=check(await db.storage.from('private-photos').download(path));check(await db.storage.from('public-photos').upload(path,blob,{upsert:true,contentType:blob.type,cacheControl:'60'}));const url=db.storage.from('public-photos').getPublicUrl(path).data.publicUrl;const field=document.createElement('input');field.readOnly=true;field.value=url;field.setAttribute('aria-label','Публичная ссылка');card.append(field);field.select();$('status').textContent='Скопируйте ссылку. На другом сайте используйте её как адрес изображения.'}catch(e){$('status').textContent=e.message}finally{pub.disabled=false}};del.onclick=async()=>{if(!confirm('Удалить оригинал и опубликованную копию? Уже скачанные копии останутся у получателей.'))return;try{check(await db.storage.from('public-photos').remove([path]));check(await db.storage.from('private-photos').remove([path]));await gallery()}catch(e){$('status').textContent=e.message}};card.append(img,note,pub,del);fragment.append(card)}}if(!active())return;$('gallery').replaceChildren(fragment);$('gallery-state').textContent=files.length?`Фотографий: ${files.length}`:'Пока нет фотографий. Загрузите первую.';}
+ const card=document.createElement('article'),img=document.createElement('img'),pub=document.createElement('button'),del=document.createElement('button'),note=document.createElement('small');img.src=signed.signedUrl;img.alt='Загруженная фотография';img.loading='lazy';img.onclick=()=>window.open(signed.signedUrl,'_blank','noopener,noreferrer');pub.textContent='Опубликовать и получить ссылку';del.textContent='Удалить';note.textContent='Публикация открывает фото всем по ссылке.';pub.onclick=async()=>{pub.disabled=true;try{if(!confirm('Фото станет общедоступным. Продолжить?'))return;const blob=check(await db.storage.from('private-photos').download(path));check(await db.storage.from('public-photos').upload(path,blob,{upsert:true,contentType:blob.type,cacheControl:'60'}));showPublicLink();message('Фото опубликовано. Ссылка готова для копирования.');}catch(e){$('status').textContent=e.message}finally{pub.disabled=false}};del.onclick=async()=>{if(!confirm('Удалить оригинал и опубликованную копию? Уже скачанные копии останутся у получателей.'))return;try{check(await db.storage.from('public-photos').remove([path]));check(await db.storage.from('private-photos').remove([path]));await gallery()}catch(e){$('status').textContent=e.message}};function showPublicLink(){
+ const url=db.storage.from('public-photos').getPublicUrl(path).data.publicUrl;
+ let field=card.querySelector('input');
+ if(!field){field=document.createElement('input');field.type='url';field.readOnly=true;field.setAttribute('aria-label','Ссылка на опубликованное изображение');field.onclick=()=>field.select();pub.replaceWith(field);}
+ field.value=url;note.textContent='Опубликовано — нажмите на ссылку, чтобы выделить её.';
+}
+card.append(img,note,pub,del);if(published.has(f.name))showPublicLink();fragment.append(card)}}if(!active())return;$('gallery').replaceChildren(fragment);$('gallery-state').textContent=files.length?`Фотографий: ${files.length}`:'Пока нет фотографий. Загрузите первую.';}
 const username=()=>{const name=$('email').value.trim().toLowerCase();if(!/^[a-z0-9_]{3,24}$/.test(name))throw Error('Логин: 3–24 символа, латинские буквы, цифры и _');return name};
 action('signup',async()=>{const name=username();const data=await inviteRequest({mode:'register',code:$('entry-code').value.trim(),username:name,password:$('password').value});if(data.error)throw Error(data.error);check(await db.auth.signInWithPassword({email:`${name}@photo-users.invalid`,password:$('password').value}));await render()});
 action('login',async()=>{check(await db.auth.signInWithPassword({email:`${username()}@photo-users.invalid`,password:$('password').value}));await render()});
